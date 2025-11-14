@@ -1,0 +1,101 @@
+/* Manage Page Specific Styles */
+
+.manage-section {
+    width: 100%;
+}
+
+.products-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1.5rem;
+    margin-top: 2rem;
+}
+
+.product-card {
+    background-color: #F8F9FA;
+    border: 2px solid #E3F2FD;
+    border-radius: 12px;
+    padding: 1.5rem;
+    transition: all 0.3s ease;
+}
+
+.product-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 6px 20px rgba(74, 144, 226, 0.15);
+    border-color: #4A90E2;
+}
+
+.product-card h3 {
+    color: #4A90E2;
+    margin-bottom: 0.5rem;
+    font-size: 1.3rem;
+}
+
+.product-card p {
+    color: #666;
+    margin-bottom: 0.5rem;
+    font-size: 0.95rem;
+}
+
+.product-actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.action-button {
+    flex: 1;
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.edit-button {
+    background-color: #4A90E2;
+    color: #FFFFFF;
+}
+
+.edit-button:hover {
+    background-color: #357ABD;
+}
+
+.view-button {
+    background-color: #E3F2FD;
+    color: #4A90E2;
+}
+
+.view-button:hover {
+    background-color: #BBDEFB;
+}
+
+.search-bar {
+    width: 100%;
+    max-width: 500px;
+    margin: 0 auto 2rem;
+    padding: 0.75rem 1rem;
+    border: 2px solid #E3F2FD;
+    border-radius: 8px;
+    font-size: 1rem;
+    transition: border-color 0.3s ease;
+}
+
+.search-bar:focus {
+    outline: none;
+    border-color: #4A90E2;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 3rem;
+    color: #999;
+}
+
+.empty-state p {
+    font-size: 1.1rem;
+    margin-top: 1rem;
+}
+

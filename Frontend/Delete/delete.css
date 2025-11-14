@@ -1,0 +1,119 @@
+/* Delete Page Specific Styles */
+
+.delete-section {
+    width: 100%;
+}
+
+.delete-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 2rem;
+}
+
+.delete-item {
+    background-color: #F8F9FA;
+    border: 2px solid #E3F2FD;
+    border-radius: 12px;
+    padding: 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: all 0.3s ease;
+}
+
+.delete-item:hover {
+    border-color: #FF5252;
+    background-color: #FFF5F5;
+}
+
+.delete-item-info {
+    flex: 1;
+}
+
+.delete-item-info h3 {
+    color: #4A90E2;
+    margin-bottom: 0.5rem;
+    font-size: 1.2rem;
+}
+
+.delete-item-info p {
+    color: #666;
+    font-size: 0.95rem;
+    margin: 0.25rem 0;
+}
+
+.delete-button {
+    background-color: #FF5252;
+    color: #FFFFFF;
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin-left: 1rem;
+}
+
+.delete-button:hover {
+    background-color: #E53935;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(255, 82, 82, 0.3);
+}
+
+.delete-button:active {
+    transform: translateY(0);
+}
+
+.bulk-delete-section {
+    margin-top: 2rem;
+    padding: 1.5rem;
+    background-color: #FFF5F5;
+    border-radius: 12px;
+    border: 2px solid #FFCDD2;
+}
+
+.bulk-delete-section h3 {
+    color: #C62828;
+    margin-bottom: 1rem;
+}
+
+.bulk-delete-actions {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.bulk-delete-button {
+    background-color: #FF5252;
+    color: #FFFFFF;
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.bulk-delete-button:hover {
+    background-color: #E53935;
+}
+
+.bulk-delete-button:disabled {
+    background-color: #CCCCCC;
+    cursor: not-allowed;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 3rem;
+    color: #999;
+}
+
+.empty-state p {
+    font-size: 1.1rem;
+    margin-top: 1rem;
+}
+
