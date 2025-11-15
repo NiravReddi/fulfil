@@ -11,6 +11,8 @@ import os
 import json
 import requests
 from datetime import datetime
+import psutil
+import gc
 # Database configuration from environment variables
 DATABASE_USERNAME = os.getenv('DATABASE_USERNAME', 'postgres')
 DATABASE_PASSWORD = os.getenv('DATABASE_PASSWORD', '')
@@ -98,9 +100,46 @@ class Webhook(db.Model):
 with app.app_context():
     db.create_all()
 
+def check_memory_limit():
+    """Check if memory usage is approaching limits. Returns (is_safe, memory_percent, memory_mb)."""
+    try:
+        process = psutil.Process(os.getpid())
+        memory_info = process.memory_info()
+        memory_percent = process.memory_percent()
+        
+        # For free tier, typically 512MB limit - warn at 80%, abort at 90%
+        # Using 400MB as safe limit (80% of 512MB)
+        MEMORY_LIMIT_MB = 400
+        MEMORY_WARN_MB = 350
+        
+        memory_mb = memory_info.rss / (1024 * 1024)
+        
+        if memory_mb > MEMORY_LIMIT_MB:
+            return False, memory_percent, memory_mb
+        elif memory_mb > MEMORY_WARN_MB:
+            # Force garbage collection
+            gc.collect()
+            memory_mb = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
+            if memory_mb > MEMORY_LIMIT_MB:
+                return False, memory_percent, memory_mb
+        
+        return True, memory_percent, memory_mb
+    except:
+        # If psutil fails, assume safe (for compatibility)
+        return True, 0, 0
+
 @app.route('/upload', methods=['POST'])
 def upload_csv():
     if request.method == 'POST':
+        # Check memory before starting
+        is_safe, mem_percent, mem_mb = check_memory_limit()
+        if not is_safe:
+            return jsonify({
+                'error': 'Memory limit reached',
+                'message': f'Server memory usage is too high ({mem_mb:.1f}MB). Please try again later or contact support.',
+                'memory_mb': round(mem_mb, 1)
+            }), 503
+        
         if 'csv_file' not in request.files:
             return jsonify({'error': 'No file part'}), 400
             
@@ -142,6 +181,13 @@ def upload_csv():
                         batch_count = 0
                         
                         for row in csv_reader:
+                            # Check memory every 10 batches
+                            if batch_count > 0 and batch_count % 10 == 0:
+                                is_safe, mem_percent, mem_mb = check_memory_limit()
+                                if not is_safe:
+                                    yield f"data: {json.dumps({'type': 'error', 'message': f'Memory limit reached during processing ({mem_mb:.1f}MB). Operation aborted. Processed {rows_processed} rows before stopping.', 'memory_mb': round(mem_mb, 1), 'rows_processed': rows_processed})}\n\n"
+                                    return
+                            
                             if len(row) >= 3:  # Ensure row has at least 3 columns
                                 batch.append({
                                     'SKU': row[1].strip(),
@@ -153,18 +199,28 @@ def upload_csv():
                                 
                                 # Process in batches for better performance
                                 if len(batch) >= BATCH_SIZE:
-                                    _bulk_upsert_products(batch)
-                                    batch_count += 1
-                                    batch = []
-                                    
-                                    # Send progress update
-                                    yield f"data: {json.dumps({'type': 'progress', 'total_batches': total_batches, 'current_batch': batch_count, 'total_rows': total_rows, 'rows_processed': rows_processed})}\n\n"
+                                    try:
+                                        _bulk_upsert_products(batch)
+                                        batch_count += 1
+                                        batch = []
+                                        # Force garbage collection every 5 batches
+                                        if batch_count % 5 == 0:
+                                            gc.collect()
+                                        # Send progress update
+                                        yield f"data: {json.dumps({'type': 'progress', 'total_batches': total_batches, 'current_batch': batch_count, 'total_rows': total_rows, 'rows_processed': rows_processed})}\n\n"
+                                    except MemoryError as e:
+                                        yield f"data: {json.dumps({'type': 'error', 'message': str(e), 'rows_processed': rows_processed})}\n\n"
+                                        return
                         
                         # Process remaining rows
                         if batch:
-                            _bulk_upsert_products(batch)
-                            batch_count += 1
-                            yield f"data: {json.dumps({'type': 'progress', 'total_batches': total_batches, 'current_batch': batch_count, 'total_rows': total_rows, 'rows_processed': rows_processed})}\n\n"
+                            try:
+                                _bulk_upsert_products(batch)
+                                batch_count += 1
+                                yield f"data: {json.dumps({'type': 'progress', 'total_batches': total_batches, 'current_batch': batch_count, 'total_rows': total_rows, 'rows_processed': rows_processed})}\n\n"
+                            except MemoryError as e:
+                                yield f"data: {json.dumps({'type': 'error', 'message': str(e), 'rows_processed': rows_processed})}\n\n"
+                                return
                         
                         # Send final success message
                         yield f"data: {json.dumps({'type': 'complete', 'success': True, 'message': 'CSV uploaded and data saved successfully!', 'rows_processed': rows_processed})}\n\n"
@@ -252,15 +308,52 @@ def get_by_description():
 @app.route('/get_all_products', methods=['GET'])
 def get_all_products():
     if request.method == 'GET':
-        products = Product.query.all()
-
-        products_list = [{
-            'SKU': p.SKU,
-            'Name': p.Name,
-            'Description': p.Description,
-            'IsActive': p.IsActive
-        } for p in products]
-        return jsonify({'success': True, 'products': products_list}), 200
+        # Check memory before loading all products
+        is_safe, mem_percent, mem_mb = check_memory_limit()
+        if not is_safe:
+            return jsonify({
+                'error': 'Memory limit reached',
+                'message': f'Server memory usage is too high ({mem_mb:.1f}MB). Please try again later.',
+                'memory_mb': round(mem_mb, 1)
+            }), 503
+        
+        try:
+            # Use pagination to avoid loading all products at once
+            # For large datasets, this prevents memory issues
+            page = request.args.get('page', 1, type=int)
+            per_page = request.args.get('per_page', 1000, type=int)  # Default 1000, max 5000
+            
+            # Limit per_page to prevent memory issues
+            per_page = min(per_page, 5000)
+            
+            pagination = Product.query.paginate(
+                page=page, 
+                per_page=per_page, 
+                error_out=False
+            )
+            
+            products_list = [{
+                'SKU': p.SKU,
+                'Name': p.Name,
+                'Description': p.Description,
+                'IsActive': p.IsActive
+            } for p in pagination.items]
+            
+            # If there are more pages, indicate that
+            has_more = pagination.has_next
+            
+            return jsonify({
+                'success': True, 
+                'products': products_list,
+                'page': page,
+                'per_page': per_page,
+                'has_more': has_more,
+                'total_pages': pagination.pages if hasattr(pagination, 'pages') else None
+            }), 200
+        except Exception as e:
+            # Force garbage collection on error
+            gc.collect()
+            return jsonify({'error': 'Error fetching products', 'message': str(e)}), 500
     return jsonify({'error': 'Method not allowed'}), 405
 
 @app.route('/get_by_is_active', methods=['GET'])
@@ -551,41 +644,62 @@ def toggle_webhook(webhook_id):
 
 def _bulk_upsert_products(batch):
     """Bulk upsert products using PostgreSQL's ON CONFLICT for better performance.
-    SKU is treated as case-insensitive for duplicate detection."""
+    SKU is treated as case-insensitive for duplicate detection.
+    Includes memory management for large batches."""
     if not batch:
         return
     
-    # Deduplicate batch by SKU (case-insensitive) - keep last occurrence (most recent data wins)
-    # This prevents "ON CONFLICT DO UPDATE command cannot affect row a second time" error
-    unique_batch = {}
-    for item in batch:
-        # Use uppercase SKU as key for case-insensitive comparison
-        sku_key = item['SKU'].upper()
-        unique_batch[sku_key] = item
-    
-    deduplicated_batch = list(unique_batch.values())
-    
-    if not deduplicated_batch:
-        return
-    
-    # Normalize SKU to uppercase for consistency (case-insensitive matching)
-    for item in deduplicated_batch:
-        item['SKU'] = item['SKU'].upper()
-    
-    # Use PostgreSQL's INSERT ... ON CONFLICT (upsert) for much faster processing
-    # Note: This requires SKU column to be case-insensitive or use UPPER(SKU) in index
-    stmt = insert(Product).values(deduplicated_batch)
-    stmt = stmt.on_conflict_do_update(
-        index_elements=['SKU'],
-        set_=dict(
-            Name=stmt.excluded.Name,
-            Description=stmt.excluded.Description,
-            IsActive=stmt.excluded.IsActive
+    try:
+        # Check memory before processing batch
+        is_safe, mem_percent, mem_mb = check_memory_limit()
+        if not is_safe:
+            raise MemoryError(f"Memory limit reached ({mem_mb:.1f}MB)")
+        
+        # Deduplicate batch by SKU (case-insensitive) - keep last occurrence (most recent data wins)
+        # This prevents "ON CONFLICT DO UPDATE command cannot affect row a second time" error
+        unique_batch = {}
+        for item in batch:
+            # Use uppercase SKU as key for case-insensitive comparison
+            sku_key = item['SKU'].upper()
+            unique_batch[sku_key] = item
+        
+        deduplicated_batch = list(unique_batch.values())
+        
+        if not deduplicated_batch:
+            return
+        
+        # Normalize SKU to uppercase for consistency (case-insensitive matching)
+        for item in deduplicated_batch:
+            item['SKU'] = item['SKU'].upper()
+        
+        # Use PostgreSQL's INSERT ... ON CONFLICT (upsert) for much faster processing
+        # Note: This requires SKU column to be case-insensitive or use UPPER(SKU) in index
+        stmt = insert(Product).values(deduplicated_batch)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=['SKU'],
+            set_=dict(
+                Name=stmt.excluded.Name,
+                Description=stmt.excluded.Description,
+                IsActive=stmt.excluded.IsActive
+            )
         )
-    )
-    
-    db.session.execute(stmt)
-    db.session.commit()
+        
+        db.session.execute(stmt)
+        db.session.commit()
+        
+        # Clear batch from memory
+        del deduplicated_batch
+        del unique_batch
+        
+    except MemoryError as e:
+        db.session.rollback()
+        raise
+    except Exception as e:
+        db.session.rollback()
+        raise
+    finally:
+        # Force garbage collection after batch processing
+        gc.collect()
 
 # Serve frontend files - must be after all API routes
 @app.route('/')
