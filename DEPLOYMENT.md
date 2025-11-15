@@ -4,7 +4,7 @@ This guide will help you deploy the Product Management application to a cloud pl
 
 ## Prerequisites
 
-- Python 3.11+
+- Python 3.12 (Python 3.13 has compatibility issues with psycopg2-binary)
 - PostgreSQL database (local or cloud-hosted)
 - Git (for version control)
 - Account on a deployment platform (Heroku, Render, Railway, etc.)
@@ -52,8 +52,9 @@ HOST=0.0.0.0
    - Configure:
      - **Build Command:** `pip install -r requirements.txt`
      - **Start Command:** `gunicorn app:app --bind 0.0.0.0:$PORT`
+     - **Python Version:** 3.12 (important - 3.13 has psycopg2 compatibility issues)
      - **Environment Variables:**
-       - `DATABASE_URL` (from PostgreSQL service)
+       - `DATABASE_URL` (from PostgreSQL service - automatically set if using Render PostgreSQL)
        - `FLASK_ENV=production`
        - `FLASK_DEBUG=False`
        - `SECRET_KEY` (generate a random string)
