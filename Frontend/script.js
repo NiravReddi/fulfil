@@ -117,7 +117,14 @@ function loadPageJS(page, callback) {
     const script = document.createElement('script');
     script.id = 'pageScript';
     script.src = `${page}/${page}.js`;
-    script.onload = callback;
+    script.onload = function() {
+        // For webhooks, wait a bit longer to ensure function is available
+        if (page === 'webhooks') {
+            setTimeout(callback, 150);
+        } else {
+            callback();
+        }
+    };
     script.onerror = function() {
         console.error(`Failed to load ${page}/${page}.js`);
         callback(); // Still call callback to continue
@@ -147,24 +154,43 @@ function navigateToPage(page) {
         
         // Load page-specific JavaScript after HTML is loaded
         loadPageJS(page, function() {
-            // Initialize page-specific functionality
-            switch(page) {
-                case 'upload':
-                    if (typeof initializeUploadPage === 'function') {
-                        initializeUploadPage();
-                    }
-                    break;
-                case 'manage':
-                    if (typeof initializeManagePage === 'function') {
-                        initializeManagePage();
-                    }
-                    break;
-                case 'delete':
-                    if (typeof initializeDeletePage === 'function') {
-                        initializeDeletePage();
-                    }
-                    break;
-            }
+            // Small delay to ensure DOM is fully ready
+            setTimeout(() => {
+                // Initialize page-specific functionality
+                switch(page) {
+                    case 'upload':
+                        if (typeof initializeUploadPage === 'function') {
+                            initializeUploadPage();
+                        } else {
+                            console.error('initializeUploadPage function not found!');
+                        }
+                        break;
+                    case 'manage':
+                        if (typeof initializeManagePage === 'function') {
+                            initializeManagePage();
+                        } else {
+                            console.error('initializeManagePage function not found!');
+                        }
+                        break;
+                    case 'delete':
+                        if (typeof initializeDeletePage === 'function') {
+                            initializeDeletePage();
+                        } else {
+                            console.error('initializeDeletePage function not found!');
+                        }
+                        break;
+                    case 'webhooks':
+                        const initFunc = window.initializeWebhooksPage || initializeWebhooksPage;
+                        if (typeof initFunc === 'function') {
+                            try {
+                                initFunc();
+                            } catch (err) {
+                                console.error('Error calling initializeWebhooksPage:', err);
+                            }
+                        }
+                        break;
+                }
+            }, 200);
         });
     });
 }

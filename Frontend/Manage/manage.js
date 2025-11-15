@@ -7,7 +7,7 @@ const itemsPerPage = 10;
 let editingProduct = null;
 let deleteProductSKU = null;
 
-const API_BASE = 'http://127.0.0.1:5000';
+// API_BASE is defined in config.js
 
 function initializeManagePage() {
     // Load all products on page load
@@ -85,6 +85,19 @@ function setupEventListeners() {
 async function loadAllProducts() {
     try {
         const response = await fetch(`${API_BASE}/get_all_products`);
+        
+        // Check if response is OK and is JSON
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(`HTTP ${response.status}: ${text.substring(0, 100)}`);
+        }
+        
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+            const text = await response.text();
+            throw new Error('Response is not JSON. Received: ' + text.substring(0, 100));
+        }
+        
         const data = await response.json();
         
         if (data.success && data.products) {

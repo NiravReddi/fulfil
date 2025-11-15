@@ -40,12 +40,24 @@ function initializeDeletePage() {
             clearResponse();
             
             try {
-                const res = await fetch('http://127.0.0.1:5000/delete', {
+                const res = await fetch(`${API_BASE}/delete`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     }
                 });
+                
+                // Check if response is OK and is JSON
+                if (!res.ok) {
+                    const text = await res.text();
+                    throw new Error(`HTTP ${res.status}: ${text.substring(0, 100)}`);
+                }
+                
+                const contentType = res.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await res.text();
+                    throw new Error('Response is not JSON. Received: ' + text.substring(0, 100));
+                }
                 
                 const data = await res.json();
                 
