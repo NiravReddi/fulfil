@@ -285,6 +285,25 @@ def insert_by_sku():
         db.session.rollback()
         return jsonify(error="Error inserting product", message=str(e)), 500
 
+@app.route('/delete_by_sku', methods=['POST'])
+def delete_by_sku():
+    data = request.get_json()
+    sku = data.get('SKU')
+    if not sku:
+        return jsonify(error="SKU is required"), 400
+
+    product = Product.query.filter_by(SKU=sku).first()
+    if not product:
+        return jsonify(error="Product with given SKU not found"), 404
+
+    try:
+        db.session.delete(product)
+        db.session.commit()
+        return jsonify(success=True, message="Product deleted successfully"), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify(error="Error deleting product", message=str(e)), 500
+
 
 
 def _bulk_upsert_products(batch):
