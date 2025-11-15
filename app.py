@@ -596,23 +596,46 @@ def index():
 # This route handles all static files (CSS, JS, HTML) while avoiding API routes
 @app.route('/<path:filepath>')
 def serve_static_files(filepath):
-    # List of API route prefixes to exclude
+    # List of API route prefixes to exclude (only exact matches, case-sensitive)
+    # These are actual API endpoints, not file paths
     api_paths = ['upload', 'delete', 'get_all_products', 'get_by_sku', 'get_by_name', 
                  'get_by_description', 'get_by_is_active', 'update_by_sku', 'insert_by_sku',
-                 'delete_by_sku', 'webhooks']
+                 'delete_by_sku']
     
     # If it's an API route, return 404 (API routes are defined above)
-    first_segment = filepath.split('/')[0]
-    if first_segment in api_paths or filepath.startswith('webhooks'):
+    # Only check if it's NOT a file (no extension) and matches API path exactly
+    first_segment = filepath.split('/')[0].lower()
+    # Check if it's an API route (no file extension and matches API path)
+    if '.' not in filepath and first_segment in [p.lower() for p in api_paths]:
         return jsonify({'error': 'Not found'}), 404
+    
+    # Check for webhooks API routes (but allow Webhooks/ directory for static files)
+    if filepath.startswith('webhooks/') and '.' not in filepath.split('/')[-1]:
+        # This might be an API route like webhooks/123/test
+        if any(char.isdigit() for char in filepath):
+            return jsonify({'error': 'Not found'}), 404
     
     # Serve files from Frontend directory or subdirectories
     try:
-        # Check if it's a subdirectory file (Upload/filename, Manage/filename, etc.)
+        # Check if it's a subdirectory file (upload/filename, manage/filename, etc.)
+        # Handle both lowercase (from frontend) and capitalized (actual directory names)
         if '/' in filepath:
             parts = filepath.split('/')
-            if len(parts) == 2 and parts[0] in ['Upload', 'Manage', 'Delete', 'Webhooks']:
-                return send_from_directory(f'Frontend/{parts[0]}', parts[1])
+            if len(parts) == 2:
+                # Map lowercase to capitalized directory names
+                dir_mapping = {
+                    'upload': 'Upload',
+                    'manage': 'Manage',
+                    'delete': 'Delete',
+                    'webhooks': 'Webhooks'
+                }
+                # Check both lowercase and capitalized
+                dir_name = parts[0]
+                actual_dir = dir_mapping.get(dir_name.lower(), dir_name)
+                
+                # Check if directory exists (case-insensitive)
+                if actual_dir in ['Upload', 'Manage', 'Delete', 'Webhooks']:
+                    return send_from_directory(f'Frontend/{actual_dir}', parts[1])
         # Otherwise, serve from root Frontend directory (styles.css, config.js, script.js, etc.)
         return send_from_directory('Frontend', filepath)
     except Exception as e:
