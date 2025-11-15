@@ -592,6 +592,34 @@ def _bulk_upsert_products(batch):
 def index():
     return send_from_directory('Frontend', 'main.html')
 
+# Serve static files from Frontend directory and subdirectories
+# This route handles all static files (CSS, JS, HTML) while avoiding API routes
+@app.route('/<path:filepath>')
+def serve_static_files(filepath):
+    # List of API route prefixes to exclude
+    api_paths = ['upload', 'delete', 'get_all_products', 'get_by_sku', 'get_by_name', 
+                 'get_by_description', 'get_by_is_active', 'update_by_sku', 'insert_by_sku',
+                 'delete_by_sku', 'webhooks']
+    
+    # If it's an API route, return 404 (API routes are defined above)
+    first_segment = filepath.split('/')[0]
+    if first_segment in api_paths or filepath.startswith('webhooks'):
+        return jsonify({'error': 'Not found'}), 404
+    
+    # Serve files from Frontend directory or subdirectories
+    try:
+        # Check if it's a subdirectory file (Upload/filename, Manage/filename, etc.)
+        if '/' in filepath:
+            parts = filepath.split('/')
+            if len(parts) == 2 and parts[0] in ['Upload', 'Manage', 'Delete', 'Webhooks']:
+                return send_from_directory(f'Frontend/{parts[0]}', parts[1])
+        # Otherwise, serve from root Frontend directory (styles.css, config.js, script.js, etc.)
+        return send_from_directory('Frontend', filepath)
+    except Exception as e:
+        # Log error for debugging
+        print(f"Error serving static file {filepath}: {e}")
+        return jsonify({'error': 'Not found'}), 404
+
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     host = os.getenv('HOST', '0.0.0.0')
