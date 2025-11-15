@@ -107,21 +107,24 @@ def check_memory_limit():
         memory_info = process.memory_info()
         memory_percent = process.memory_percent()
         
-        # For free tier, typically 512MB limit - warn at 80%, abort at 90%
-        # Using 400MB as safe limit (80% of 512MB)
-        MEMORY_LIMIT_MB = 400
-        MEMORY_WARN_MB = 350
+        # For free tier, typically 512MB limit - be more conservative
+        # Using 300MB as safe limit (60% of 512MB) to leave room for processing
+        MEMORY_LIMIT_MB = 300
+        MEMORY_WARN_MB = 250
         
         memory_mb = memory_info.rss / (1024 * 1024)
         
         if memory_mb > MEMORY_LIMIT_MB:
-            return False, memory_percent, memory_mb
-        elif memory_mb > MEMORY_WARN_MB:
-            # Force garbage collection
+            # Force aggressive garbage collection
             gc.collect()
+            gc.collect()  # Call twice for better cleanup
             memory_mb = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
             if memory_mb > MEMORY_LIMIT_MB:
                 return False, memory_percent, memory_mb
+        elif memory_mb > MEMORY_WARN_MB:
+            # Force garbage collection at warning level
+            gc.collect()
+            memory_mb = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
         
         return True, memory_percent, memory_mb
     except:
@@ -148,9 +151,32 @@ def upload_csv():
             return jsonify({'error': 'No selected file'}), 400
 
         if csv_file:
+            # Check file size before reading (limit to 30MB to prevent memory issues)
+            csv_file.seek(0, os.SEEK_END)
+            file_size = csv_file.tell()
+            csv_file.seek(0)
+            
+            MAX_FILE_SIZE = 30 * 1024 * 1024  # 30MB limit (reduced from 50MB)
+            if file_size > MAX_FILE_SIZE:
+                return jsonify({
+                    'error': 'File too large',
+                    'message': f'File size ({file_size / (1024*1024):.1f}MB) exceeds maximum allowed size (30MB). Please split your file into smaller chunks.',
+                    'file_size_mb': round(file_size / (1024*1024), 1)
+                }), 400
+            
             # Read file content while request context is still active
             try:
                 file_content = csv_file.stream.read().decode("UTF-8", errors='ignore')
+                # Check memory after reading file
+                is_safe, mem_percent, mem_mb = check_memory_limit()
+                if not is_safe:
+                    del file_content  # Free memory
+                    gc.collect()
+                    return jsonify({
+                        'error': 'Memory limit reached',
+                        'message': f'Server memory usage is too high ({mem_mb:.1f}MB) after reading file. Please try again later.',
+                        'memory_mb': round(mem_mb, 1)
+                    }), 503
             except Exception as e:
                 return jsonify({'error': 'Error reading file', 'message': str(e)}), 400
             
@@ -158,8 +184,9 @@ def upload_csv():
                 # Push application context for the generator
                 with app.app_context():
                     try:
-                        # Batch size for processing and committing
-                        BATCH_SIZE = 1000
+                        # Reduced batch size for better memory management
+                        # Smaller batches = less memory per operation
+                        BATCH_SIZE = 250
                         
                         # First pass: count total rows for progress calculation
                         csv_data_count = StringIO(file_content)
@@ -181,11 +208,16 @@ def upload_csv():
                         batch_count = 0
                         
                         for row in csv_reader:
-                            # Check memory every 10 batches
-                            if batch_count > 0 and batch_count % 10 == 0:
+                            # Check memory more frequently - every 3 batches
+                            if batch_count > 0 and batch_count % 3 == 0:
                                 is_safe, mem_percent, mem_mb = check_memory_limit()
                                 if not is_safe:
                                     yield f"data: {json.dumps({'type': 'error', 'message': f'Memory limit reached during processing ({mem_mb:.1f}MB). Operation aborted. Processed {rows_processed} rows before stopping.', 'memory_mb': round(mem_mb, 1), 'rows_processed': rows_processed})}\n\n"
+                                    # Clean up
+                                    del batch
+                                    del file_content
+                                    gc.collect()
+                                    gc.collect()
                                     return
                             
                             if len(row) >= 3:  # Ensure row has at least 3 columns
@@ -203,9 +235,8 @@ def upload_csv():
                                         _bulk_upsert_products(batch)
                                         batch_count += 1
                                         batch = []
-                                        # Force garbage collection every 5 batches
-                                        if batch_count % 5 == 0:
-                                            gc.collect()
+                                        # Force aggressive garbage collection after every batch
+                                        gc.collect()
                                         # Send progress update
                                         yield f"data: {json.dumps({'type': 'progress', 'total_batches': total_batches, 'current_batch': batch_count, 'total_rows': total_rows, 'rows_processed': rows_processed})}\n\n"
                                     except MemoryError as e:
@@ -224,6 +255,11 @@ def upload_csv():
                         
                         # Send final success message
                         yield f"data: {json.dumps({'type': 'complete', 'success': True, 'message': 'CSV uploaded and data saved successfully!', 'rows_processed': rows_processed})}\n\n"
+                        
+                        # Final cleanup
+                        del file_content
+                        gc.collect()
+                        gc.collect()
                         
                     except Exception as e:
                         db.session.rollback()
@@ -321,10 +357,10 @@ def get_all_products():
             # Use pagination to avoid loading all products at once
             # For large datasets, this prevents memory issues
             page = request.args.get('page', 1, type=int)
-            per_page = request.args.get('per_page', 1000, type=int)  # Default 1000, max 5000
+            per_page = request.args.get('per_page', 500, type=int)  # Reduced default to 500, max 2000
             
-            # Limit per_page to prevent memory issues
-            per_page = min(per_page, 5000)
+            # Limit per_page to prevent memory issues - more conservative
+            per_page = min(per_page, 2000)
             
             pagination = Product.query.paginate(
                 page=page, 
