@@ -6,7 +6,7 @@ import csv
 from flask_cors import CORS   
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy import func
+from sqlalchemy import func, create_engine
 import os
 import json
 import requests
@@ -26,17 +26,38 @@ app.static_url_path = ''
 # Construct database URI
 if os.getenv('DATABASE_URL'):
     # Use DATABASE_URL if provided (common in cloud deployments)
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
+    # Convert postgres:// to postgresql+psycopg:// for psycopg3 compatibility
+    database_url = os.getenv('DATABASE_URL')
+    if database_url.startswith('postgres://'):
+        database_url = database_url.replace('postgres://', 'postgresql+psycopg://', 1)
+    elif database_url.startswith('postgresql://'):
+        database_url = database_url.replace('postgresql://', 'postgresql+psycopg://', 1)
+    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 else:
-    # Construct from individual components
-    app.config['SQLALCHEMY_DATABASE_URI'] = f'postgresql://{DATABASE_USERNAME}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}'
+    # Construct from individual components - use psycopg3 driver
+    app.config['SQLALCHEMY_DATABASE_URI'] = f'postgresql+psycopg://{DATABASE_USERNAME}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}'
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False  # Recommended to disable
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_pre_ping': True,
     'pool_size': 10,
     'max_overflow': 20,
     'pool_recycle': 3600,
+    # Explicitly use psycopg (psycopg3) driver
+    'connect_args': {}
 }
+
+# Import psycopg to ensure it's available before SQLAlchemy initializes
+# This ensures SQLAlchemy recognizes psycopg3 when using postgresql+psycopg://
+try:
+    import psycopg
+    # Explicitly import the psycopg dialect to register it with SQLAlchemy
+    # This is needed for SQLAlchemy to recognize postgresql+psycopg:// URLs
+    from sqlalchemy.dialects.postgresql.psycopg import PGDialect_psycopg
+except (ImportError, AttributeError):
+    # If psycopg is not available, the connection will fail with a clear error
+    pass
+
 db = SQLAlchemy(app)
 CORS(app)
 
