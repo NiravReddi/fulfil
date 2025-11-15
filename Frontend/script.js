@@ -30,6 +30,17 @@ function loadPageCSS(page) {
 
 // Load HTML dynamically - tries multiple methods
 function loadPageHTML(page, callback) {
+    let htmlLoaded = false;
+    let callbackExecuted = false;
+    
+    // Wrapper to ensure callback is only called once
+    const safeCallback = function(html) {
+        if (!callbackExecuted) {
+            callbackExecuted = true;
+            callback(html);
+        }
+    };
+    
     // Method 1: Try to load from HTML file via XMLHttpRequest (works with HTTP server)
     const htmlPath = `${page}/${page}.html`;
     const xhr = new XMLHttpRequest();
@@ -39,25 +50,38 @@ function loadPageHTML(page, callback) {
         if (xhr.readyState === 4) {
             if (xhr.status === 200 || xhr.status === 0) {
                 // Status 200 for HTTP, 0 for file:// protocol (if browser allows)
-                callback(xhr.responseText);
+                if (!htmlLoaded) {
+                    htmlLoaded = true;
+                    safeCallback(xhr.responseText);
+                }
                 return;
+            } else if (xhr.status === 404) {
+                // File not found, try template
+                if (!htmlLoaded && !callbackExecuted) {
+                    htmlLoaded = true;
+                    loadHTMLFromTemplate(page, safeCallback);
+                }
             }
         }
     };
     
     xhr.onerror = function() {
         // Method 2: Try loading template JS file
-        loadHTMLFromTemplate(page, callback);
+        if (!htmlLoaded && !callbackExecuted) {
+            htmlLoaded = true;
+            loadHTMLFromTemplate(page, safeCallback);
+        }
     };
     
     xhr.send();
     
-    // Also try template as backup
+    // Fallback to template only if request hasn't completed after timeout
     setTimeout(() => {
-        if (xhr.readyState !== 4) {
-            loadHTMLFromTemplate(page, callback);
+        if (!htmlLoaded && xhr.readyState !== 4 && !callbackExecuted) {
+            htmlLoaded = true;
+            loadHTMLFromTemplate(page, safeCallback);
         }
-    }, 100);
+    }, 1000);
 }
 
 // Load HTML from template JS file
@@ -73,23 +97,34 @@ function loadHTMLFromTemplate(page, callback) {
     
     const script = document.createElement('script');
     script.src = templatePath;
+    let templateLoaded = false;
     
     script.onload = function() {
         // Small delay to ensure variable is set
         setTimeout(() => {
-            if (typeof window[htmlVar] !== 'undefined') {
-                const html = window[htmlVar];
-                callback(html);
-                // Don't delete - keep for potential reuse
-            } else {
-                callback(getFallbackHTML(page));
+            if (!templateLoaded) {
+                templateLoaded = true;
+                if (typeof window[htmlVar] !== 'undefined') {
+                    const html = window[htmlVar];
+                    // Only call callback if HTML hasn't been set yet (prevent overwriting)
+                    callback(html);
+                    // Don't delete - keep for potential reuse
+                } else {
+                    // Template variable not found - don't show error, HTML file should have loaded
+                    console.warn(`Template variable ${htmlVar} not found for ${page}, but HTML file may have loaded`);
+                }
             }
-        }, 10);
+        }, 50);
     };
     
     script.onerror = function() {
-        // Final fallback - try to read from HTML file directly as last resort
-        callback(getFallbackHTML(page));
+        if (!templateLoaded) {
+            templateLoaded = true;
+            // Only show error if we haven't already loaded HTML successfully
+            // Don't call callback with error HTML - let the HTML file loading handle it
+            console.warn(`Failed to load template ${templatePath} for ${page}`);
+            // Don't call callback here - the HTML file should have already loaded
+        }
     };
     
     document.head.appendChild(script);
@@ -149,8 +184,13 @@ function navigateToPage(page) {
     contentArea.appendChild(section);
     
     // Load page-specific HTML
+    let htmlSet = false;
     loadPageHTML(page, function(html) {
-        section.innerHTML = html;
+        // Only set HTML once - prevent template fallback from overwriting
+        if (!htmlSet) {
+            htmlSet = true;
+            section.innerHTML = html;
+        }
         
         // Load page-specific JavaScript after HTML is loaded
         loadPageJS(page, function() {
