@@ -1,5 +1,28 @@
 <h2 class="section-title">Delete Products</h2>
 <div class="section-content">
-    <p>Delete Products works !</p>
+    <div class="delete-all-section">
+        <h3>Delete All Products</h3>
+        <p>This will permanently delete all products from the database. This action cannot be undone.</p>
+        <button type="button" class="delete-all-button" id="delete-all-button">
+            Delete All Products
+        </button>
+    </div>
+    <div id="delete-response" class="response-container"></div>
+</div>
+
+<!-- Confirmation Dialog -->
+<div id="delete-confirm-dialog" class="confirm-dialog-overlay" style="display: none;">
+    <div class="confirm-dialog">
+        <div class="confirm-dialog-header">
+            <h3>Confirm Deletion</h3>
+        </div>
+        <div class="confirm-dialog-body">
+            <p>Are you sure, This will Delete everything?</p>
+        </div>
+        <div class="confirm-dialog-footer">
+            <button type="button" class="confirm-button confirm-yes" id="confirm-yes">Yes</button>
+            <button type="button" class="confirm-button confirm-no" id="confirm-no">No</button>
+        </div>
+    </div>
 </div>
 

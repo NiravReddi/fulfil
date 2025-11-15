@@ -173,10 +173,3 @@ function initializeUploadPage() {
     }
 }
 
-// Call initialize when script loads
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initializeUploadPage);
-} else {
-    initializeUploadPage();
-}
-

@@ -1,5 +1,30 @@
 <h2 class="section-title">Upload Products</h2>
 <div class="section-content">
-    <p>Upload Products works !</p>
+  <form id="upload-form" enctype="multipart/form-data" class="upload-form">
+    <div class="form-group">
+      <label for="csv_file">Select CSV file:</label>
+      <input type="file" id="csv_file" name="csv_file" accept=".csv" required>
+      <small style="color: #666; margin-top: 0.25rem; display: block;">File format: CSV with columns (Name, SKU, Description)</small>
+    </div>
+    <button type="submit" class="upload-button" id="upload-button">
+      <span id="button-text">Upload CSV</span>
+      <span id="button-loading" style="display: none;">Uploading...</span>
+    </button>
+  </form>
+  <div id="progress-container" class="progress-container" style="display: none;">
+    <div class="progress-info">
+      <span id="progress-text">Processing...</span>
+    </div>
+    <div class="progress-bar-wrapper">
+      <div id="progress-bar" class="progress-bar">
+        <div class="progress-bar-fill"></div>
+        <div class="progress-bar-shine"></div>
+      </div>
+    </div>
+    <div class="progress-details">
+      <span id="batch-info">Batch 0 of 0</span>
+      <span id="rows-info">0 rows processed</span>
+    </div>
+  </div>
+  <div id="response" class="response-container"></div>
 </div>
-

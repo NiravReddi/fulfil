@@ -1,12 +1,13 @@
 import flask
 from flask import Flask
-from flask import request, jsonify, render_template
+from flask import request, jsonify, render_template, Response
 from io import StringIO
 import csv
 from flask_cors import CORS   
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.dialects.postgresql import insert
 import os
+import json
 DATABASE_USERNAME = os.getenv('DATABASE_USERNAME')
 DATABASE_PASSWORD = os.getenv('DATABASE_PASSWORD')
 DATABASE_NAME = os.getenv('DATABASE_NAME')
@@ -32,8 +33,6 @@ class Product(db.Model):
         def __repr__(self):
             return '<User %r>' % self.Name
 
-from app import app, db 
-
 with app.app_context():
     db.create_all()
 
@@ -50,50 +49,71 @@ def upload_csv():
             return jsonify({'error': 'No selected file'}), 400
 
         if csv_file:
+            # Read file content while request context is still active
             try:
-                # Batch size for processing and committing
-                BATCH_SIZE = 1000
-                
-                # Read and decode CSV in chunks for memory efficiency
-                csv_data = StringIO(csv_file.stream.read().decode("UTF-8", errors='ignore'))
-                csv_reader = csv.reader(csv_data)
-                    
-                # Skip header row if present
-                next(csv_reader, None) 
-
-                rows_processed = 0
-                batch = []
-                
-                for row in csv_reader:
-                    if len(row) >= 3:  # Ensure row has at least 3 columns
-                        batch.append({
-                            'SKU': row[1].strip(),
-                            'Name': row[0].strip(),
-                            'Description': row[2].strip() if len(row) > 2 else '',
-                            'IsActive': True  # Default to True for new/updated products
-                        })
-                        rows_processed += 1
-                        
-                        # Process in batches for better performance
-                        if len(batch) >= BATCH_SIZE:
-                            _bulk_upsert_products(batch)
-                            batch = []
-                    
-                # Process remaining rows
-                if batch:
-                    _bulk_upsert_products(batch)
-                
-                return jsonify({
-                    'success': True,
-                    'message': 'CSV uploaded and data saved successfully!',
-                    'rows_processed': rows_processed
-                }), 200
+                file_content = csv_file.stream.read().decode("UTF-8", errors='ignore')
             except Exception as e:
-                db.session.rollback()
-                return jsonify({
-                    'error': 'Error processing CSV file',
-                    'message': str(e)
-                }), 500
+                return jsonify({'error': 'Error reading file', 'message': str(e)}), 400
+            
+            def generate():
+                # Push application context for the generator
+                with app.app_context():
+                    try:
+                        # Batch size for processing and committing
+                        BATCH_SIZE = 1000
+                        
+                        # First pass: count total rows for progress calculation
+                        csv_data_count = StringIO(file_content)
+                        csv_reader_count = csv.reader(csv_data_count)
+                        next(csv_reader_count, None)  # Skip header
+                        total_rows = sum(1 for row in csv_reader_count if len(row) >= 3)
+                        total_batches = (total_rows + BATCH_SIZE - 1) // BATCH_SIZE  # Ceiling division
+                        
+                        # Send initial progress
+                        yield f"data: {json.dumps({'type': 'progress', 'total_batches': total_batches, 'current_batch': 0, 'total_rows': total_rows, 'rows_processed': 0})}\n\n"
+                        
+                        # Reset for second pass - process the data
+                        csv_data = StringIO(file_content)
+                        csv_reader = csv.reader(csv_data)
+                        next(csv_reader, None)  # Skip header
+
+                        rows_processed = 0
+                        batch = []
+                        batch_count = 0
+                        
+                        for row in csv_reader:
+                            if len(row) >= 3:  # Ensure row has at least 3 columns
+                                batch.append({
+                                    'SKU': row[1].strip(),
+                                    'Name': row[0].strip(),
+                                    'Description': row[2].strip() if len(row) > 2 else '',
+                                    'IsActive': True  # Default to True for new/updated products
+                                })
+                                rows_processed += 1
+                                
+                                # Process in batches for better performance
+                                if len(batch) >= BATCH_SIZE:
+                                    _bulk_upsert_products(batch)
+                                    batch_count += 1
+                                    batch = []
+                                    
+                                    # Send progress update
+                                    yield f"data: {json.dumps({'type': 'progress', 'total_batches': total_batches, 'current_batch': batch_count, 'total_rows': total_rows, 'rows_processed': rows_processed})}\n\n"
+                        
+                        # Process remaining rows
+                        if batch:
+                            _bulk_upsert_products(batch)
+                            batch_count += 1
+                            yield f"data: {json.dumps({'type': 'progress', 'total_batches': total_batches, 'current_batch': batch_count, 'total_rows': total_rows, 'rows_processed': rows_processed})}\n\n"
+                        
+                        # Send final success message
+                        yield f"data: {json.dumps({'type': 'complete', 'success': True, 'message': 'CSV uploaded and data saved successfully!', 'rows_processed': rows_processed})}\n\n"
+                        
+                    except Exception as e:
+                        db.session.rollback()
+                        yield f"data: {json.dumps({'type': 'error', 'error': 'Error processing CSV file', 'message': str(e)})}\n\n"
+            
+            return Response(generate(), mimetype='text/event-stream')
         
         return jsonify({'error': 'Invalid file'}), 400
     
