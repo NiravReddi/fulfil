@@ -165,12 +165,13 @@ def upload_csv():
                 }), 400
             
             # Read file content while request context is still active
+            file_content = None
             try:
                 file_content = csv_file.stream.read().decode("UTF-8", errors='ignore')
                 # Check memory after reading file
                 is_safe, mem_percent, mem_mb = check_memory_limit()
                 if not is_safe:
-                    del file_content  # Free memory
+                    file_content = None  # Clear reference
                     gc.collect()
                     return jsonify({
                         'error': 'Memory limit reached',
@@ -180,10 +181,18 @@ def upload_csv():
             except Exception as e:
                 return jsonify({'error': 'Error reading file', 'message': str(e)}), 400
             
+            # Store file_content in a way that can be accessed and cleaned up in generator
+            file_content_ref = [file_content]  # Use list to allow modification in nested scope
+            
             def generate():
                 # Push application context for the generator
                 with app.app_context():
                     try:
+                        # Get file content from outer scope
+                        file_content = file_content_ref[0]
+                        if file_content is None:
+                            yield f"data: {json.dumps({'type': 'error', 'error': 'Error processing CSV file', 'message': 'File content is empty'})}\n\n"
+                            return
                         # Reduced batch size for better memory management
                         # Smaller batches = less memory per operation
                         BATCH_SIZE = 250
@@ -214,8 +223,8 @@ def upload_csv():
                                 if not is_safe:
                                     yield f"data: {json.dumps({'type': 'error', 'message': f'Memory limit reached during processing ({mem_mb:.1f}MB). Operation aborted. Processed {rows_processed} rows before stopping.', 'memory_mb': round(mem_mb, 1), 'rows_processed': rows_processed})}\n\n"
                                     # Clean up
-                                    del batch
-                                    del file_content
+                                    batch.clear()
+                                    file_content_ref[0] = None  # Clear file content reference
                                     gc.collect()
                                     gc.collect()
                                     return
@@ -257,7 +266,7 @@ def upload_csv():
                         yield f"data: {json.dumps({'type': 'complete', 'success': True, 'message': 'CSV uploaded and data saved successfully!', 'rows_processed': rows_processed})}\n\n"
                         
                         # Final cleanup
-                        del file_content
+                        file_content_ref[0] = None  # Clear file content reference
                         gc.collect()
                         gc.collect()
                         
