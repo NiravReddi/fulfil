@@ -100,6 +100,23 @@ class Webhook(db.Model):
 with app.app_context():
     db.create_all()
 
+def create_webhook_entry(event_type, url="", enabled=True):
+    """Helper function to create a webhook entry in the database."""
+    try:
+        webhook = Webhook(
+            url=url,
+            event_type=event_type,
+            enabled=enabled
+        )
+        db.session.add(webhook)
+        db.session.commit()
+        return webhook
+    except Exception as e:
+        db.session.rollback()
+        # Don't fail the main operation if webhook creation fails
+        print(f"Error creating webhook entry: {str(e)}")
+        return None
+
 def check_memory_limit():
     """Check if memory usage is approaching limits. Returns (is_safe, memory_percent, memory_mb)."""
     try:
@@ -265,6 +282,13 @@ def upload_csv():
                         # Send final success message
                         yield f"data: {json.dumps({'type': 'complete', 'success': True, 'message': 'CSV uploaded and data saved successfully!', 'rows_processed': rows_processed})}\n\n"
                         
+                        # Create webhook entry for product uploaded (bulk) event
+                        try:
+                            create_webhook_entry("product uploaded (bulk)")
+                        except Exception as e:
+                            # Don't fail the upload if webhook creation fails
+                            print(f"Error creating webhook entry for bulk upload: {str(e)}")
+                        
                         # Final cleanup
                         file_content_ref[0] = None  # Clear file content reference
                         gc.collect()
@@ -286,6 +310,8 @@ def delete_products():
         try:
             db.session.query(Product).delete()
             db.session.commit()
+            # Create webhook entry for product deleted event
+            create_webhook_entry("product deleted")
             return jsonify({'success': True, 'message': 'All products deleted successfully'}), 200
         except Exception as e:
             db.session.rollback()
@@ -451,6 +477,8 @@ def update_by_sku():
 
     try:
         db.session.commit()
+        # Create webhook entry for product updated event
+        create_webhook_entry("product updated")
         return jsonify(success=True, message="Product updated successfully"), 200
     except Exception as e:
         db.session.rollback()
@@ -478,6 +506,8 @@ def insert_by_sku():
 
     try:
         db.session.commit()
+        # Create webhook entry for product created event
+        create_webhook_entry("product created")
         return jsonify(success=True, message="Product inserted successfully"), 201
     except Exception as e:
         db.session.rollback()
