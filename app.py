@@ -100,9 +100,19 @@ class Webhook(db.Model):
 with app.app_context():
     db.create_all()
 
-def create_webhook_entry(event_type, url="", enabled=True):
-    """Helper function to create a webhook entry in the database."""
+def create_webhook_entry(event_type, route="", enabled=True):
+    """Helper function to create a webhook entry in the database.
+    
+    Args:
+        event_type: The type of event (e.g., "product created", "product updated")
+        route: The route path (e.g., "/delete", "/insert_by_sku")
+        enabled: Whether the webhook is enabled (default: True)
+    """
     try:
+        # Construct full URL from base URL and route
+        base_url = "https://fulfil-5fsi.onrender.com"
+        url = f"{base_url}{route}" if route else base_url
+        
         webhook = Webhook(
             url=url,
             event_type=event_type,
@@ -284,7 +294,7 @@ def upload_csv():
                         
                         # Create webhook entry for product uploaded (bulk) event
                         try:
-                            create_webhook_entry("product uploaded (bulk)")
+                            create_webhook_entry("product uploaded (bulk)", "/upload")
                         except Exception as e:
                             # Don't fail the upload if webhook creation fails
                             print(f"Error creating webhook entry for bulk upload: {str(e)}")
@@ -311,7 +321,7 @@ def delete_products():
             db.session.query(Product).delete()
             db.session.commit()
             # Create webhook entry for product deleted event
-            create_webhook_entry("product deleted")
+            create_webhook_entry("product deleted", "/delete")
             return jsonify({'success': True, 'message': 'All products deleted successfully'}), 200
         except Exception as e:
             db.session.rollback()
@@ -478,7 +488,7 @@ def update_by_sku():
     try:
         db.session.commit()
         # Create webhook entry for product updated event
-        create_webhook_entry("product updated")
+        create_webhook_entry("product updated", "/update_by_sku")
         return jsonify(success=True, message="Product updated successfully"), 200
     except Exception as e:
         db.session.rollback()
@@ -507,7 +517,7 @@ def insert_by_sku():
     try:
         db.session.commit()
         # Create webhook entry for product created event
-        create_webhook_entry("product created")
+        create_webhook_entry("product created", "/insert_by_sku")
         return jsonify(success=True, message="Product inserted successfully"), 201
     except Exception as e:
         db.session.rollback()
